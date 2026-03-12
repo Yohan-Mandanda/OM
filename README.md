@@ -46,6 +46,15 @@ python om_eticket_downloader.py \
   --output-dir downloads
 ```
 
+You can request multiple matches in one run:
+
+```bash
+python om_eticket_downloader.py \
+  --accounts-file accounts_example.csv \
+  --match "Auxerre,Lille" \
+  --output-dir downloads
+```
+
 Useful options:
 
 - `--headless` (not recommended if captcha appears)

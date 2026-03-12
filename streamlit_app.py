@@ -15,7 +15,10 @@ st.caption("Automate login + e-ticket download for multiple OM billetterie accou
 
 with st.form("run_form"):
     spreadsheet = st.file_uploader("Accounts file (CSV or XLSX)", type=["csv", "xlsx", "xlsm"])
-    match_name = st.text_input("Match to download", placeholder="Ex: Lille, Auxerre, Metz")
+    match_name = st.text_input(
+        "Match(es) to download",
+        placeholder="Ex: Lille   or   Auxerre,Lille",
+    )
     output_dir = st.text_input("Output folder", value="downloads")
     headless = st.checkbox("Headless mode", value=False)
     login_wait_seconds = st.number_input(

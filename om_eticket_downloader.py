@@ -41,6 +41,18 @@ def _sanitize_segment(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]+", "_", value).strip("_") or "account"
 
 
+def _parse_match_queries(value: str) -> List[str]:
+    parts = [p.strip() for p in re.split(r"[,\n;]+", value or "") if p.strip()]
+    unique: List[str] = []
+    seen = set()
+    for part in parts:
+        key = _normalize(part)
+        if key and key not in seen:
+            unique.append(part)
+            seen.add(key)
+    return unique
+
+
 def _resolve_header(headers: List[str], candidates: Iterable[str]) -> Optional[str]:
     normalized_headers = {_normalize(h): h for h in headers if h}
     for candidate in candidates:
@@ -178,8 +190,64 @@ def _go_to_billetterie_space(page: Page) -> None:
     page.locator("ul.manageEvtCardList").first.wait_for(timeout=20000)
 
 
+def _event_cards_locator(page: Page):
+    selectors = [
+        "ul.manageEvtCardList li a",
+        "ul.u-flex.manageEvtCardList > li > a",
+        "li a:has(.manageEvtCardTitle)",
+        "a:has(.manageEvtCardEnd)",
+    ]
+    for selector in selectors:
+        locator = page.locator(selector)
+        if locator.count() > 0:
+            return locator
+    return page.locator("ul.manageEvtCardList li a")
+
+
+def _extract_card_title(card) -> str:
+    title_selectors = [
+        ".manageEvtCardTitle span",
+        ".manageEvtCardTitle",
+        "strong.manageEvtCardTitle",
+    ]
+
+    for selector in title_selectors:
+        locator = card.locator(selector)
+        if locator.count() == 0:
+            continue
+        try:
+            raw = locator.first.inner_text(timeout=3000).strip()
+        except Exception:
+            continue
+        if not raw:
+            continue
+
+        lines = [re.sub(r"\s+", " ", line).strip() for line in raw.splitlines()]
+        lines = [line for line in lines if line]
+        if lines:
+            return lines[-1]
+
+    # Last-resort extraction from the full card text.
+    try:
+        card_text = card.inner_text(timeout=3000)
+    except Exception:
+        return ""
+
+    ignored_tokens = ("ligue 1", "journee", "orange velodrome", "week-end")
+    lines = [re.sub(r"\s+", " ", line).strip() for line in card_text.splitlines()]
+    candidates = [
+        line
+        for line in lines
+        if line
+        and any(ch.isalpha() for ch in line)
+        and not any(token in _normalize(line) for token in ignored_tokens)
+        and not re.search(r"\d{1,2}\s+\w+\s+\d{4}", _normalize(line))
+    ]
+    return candidates[-1] if candidates else ""
+
+
 def _choose_match(page: Page, match_query: str) -> str:
-    cards = page.locator("ul.manageEvtCardList li a")
+    cards = _event_cards_locator(page)
     count = cards.count()
     if count == 0:
         raise RuntimeError("No match cards found in 'Mon espace billetterie'.")
@@ -190,12 +258,12 @@ def _choose_match(page: Page, match_query: str) -> str:
 
     for idx in range(count):
         card = cards.nth(idx)
-        title_locator = card.locator(".manageEvtCardTitle span")
-        if title_locator.count() == 0:
+        title = _extract_card_title(card)
+        if not title:
             continue
-        title = title_locator.first.inner_text(timeout=5000).strip()
         available.append(title)
-        if normalized_query in _normalize(title):
+        normalized_title = _normalize(title)
+        if normalized_query in normalized_title or normalized_title in normalized_query:
             found_card = card
             chosen_title = title
             break
@@ -329,8 +397,13 @@ def _process_account(
     page = context.new_page()
     account_dir = destination_root / _sanitize_segment(account.email)
     saved_files: List[Path] = []
+    match_queries = _parse_match_queries(match_name)
+    matched_names: List[str] = []
 
     try:
+        if not match_queries:
+            raise RuntimeError("No match name provided.")
+
         _emit(progress_cb, f"[{account.email}] Opening site...")
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
         _accept_cookie_banner(page)
@@ -353,19 +426,32 @@ def _process_account(
         _go_to_billetterie_space(page)
         _wait_between_actions(page, step_wait_seconds)
 
-        chosen_match = _choose_match(page, match_name)
-        _emit(progress_cb, f"[{account.email}] Match selected: {chosen_match}")
-        _wait_between_actions(page, step_wait_seconds)
+        for idx, query in enumerate(match_queries):
+            chosen_match = _choose_match(page, query)
+            matched_names.append(chosen_match)
+            _emit(progress_cb, f"[{account.email}] Match selected: {chosen_match}")
+            _wait_between_actions(page, step_wait_seconds)
 
-        saved_files = _download_ticket_buttons(page, context, account_dir)
-        _emit(progress_cb, f"[{account.email}] Downloaded {len(saved_files)} file(s).")
-        _wait_between_actions(page, step_wait_seconds)
+            new_files = _download_ticket_buttons(page, context, account_dir)
+            saved_files.extend(new_files)
+            _emit(
+                progress_cb,
+                f"[{account.email}] Downloaded {len(new_files)} file(s) for '{chosen_match}'.",
+            )
+            _wait_between_actions(page, step_wait_seconds)
+
+            # If more matches are requested, return to list view and continue.
+            if idx < len(match_queries) - 1:
+                page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
+                _wait_between_actions(page, step_wait_seconds)
+                _go_to_billetterie_space(page)
+                _wait_between_actions(page, step_wait_seconds)
 
         _logout(page)
         _emit(progress_cb, f"[{account.email}] Logged out.")
         return DownloadResult(
             email=account.email,
-            match_name=chosen_match,
+            match_name=", ".join(matched_names) if matched_names else match_name,
             saved_files=saved_files,
             success=True,
         )
