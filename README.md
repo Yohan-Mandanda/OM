@@ -61,10 +61,15 @@ Useful options:
 - `--login-wait-seconds 180`
 - `--step-wait-seconds 10`
 - `--slow-mo-ms 150`
+- `--debug --debug-dir debug`
 
 Downloads are saved under:
 
 `downloads/<email>/`
+
+When debug is enabled, screenshots + page HTML are saved under:
+
+`debug/<email>/`
 
 ## Run with interface (Streamlit)
 

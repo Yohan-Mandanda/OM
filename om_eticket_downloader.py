@@ -5,6 +5,7 @@ import csv
 import re
 import time
 import unicodedata
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional
@@ -129,6 +130,38 @@ def _emit(progress_cb: Optional[Callable[[str], None]], message: str) -> None:
         progress_cb(message)
 
 
+def _timestamp() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _log(progress_cb: Optional[Callable[[str], None]], message: str) -> None:
+    _emit(progress_cb, f"{_timestamp()} | {message}")
+
+
+def _safe_slug(value: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9._-]+", "_", value).strip("_") or "step"
+
+
+def _snapshot_if_debug(
+    page: Page,
+    debug_dir: Optional[Path],
+    label: str,
+    progress_cb: Optional[Callable[[str], None]] = None,
+) -> None:
+    if not debug_dir:
+        return
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    slug = _safe_slug(label)
+    screenshot_path = debug_dir / f"{slug}.png"
+    html_path = debug_dir / f"{slug}.html"
+    try:
+        page.screenshot(path=str(screenshot_path), full_page=True)
+        html_path.write_text(page.content(), encoding="utf-8")
+        _log(progress_cb, f"Debug snapshot saved: {screenshot_path}")
+    except Exception as exc:
+        _log(progress_cb, f"Debug snapshot failed ({label}): {exc}")
+
+
 def _wait_between_actions(page: Page, step_wait_seconds: int) -> None:
     if step_wait_seconds > 0:
         page.wait_for_timeout(step_wait_seconds * 1000)
@@ -153,8 +186,13 @@ def _accept_cookie_banner(page: Page) -> None:
             continue
 
 
-def _wait_for_login_state(page: Page, max_wait_seconds: int) -> None:
+def _wait_for_login_state(
+    page: Page,
+    max_wait_seconds: int,
+    progress_cb: Optional[Callable[[str], None]] = None,
+) -> None:
     end_time = time.time() + max_wait_seconds
+    next_log_time = time.time()
     while time.time() < end_time:
         has_connect_text = (
             page.locator("#om-top-bar")
@@ -166,7 +204,15 @@ def _wait_for_login_state(page: Page, max_wait_seconds: int) -> None:
             "#popup-login-login-form"
         ).first.is_visible()
         if not has_connect_text and not has_login_form:
+            _log(progress_cb, f"Login appears successful, current URL: {page.url}")
             return
+        if time.time() >= next_log_time:
+            _log(
+                progress_cb,
+                "Waiting for login completion/captcha... "
+                f"url={page.url} form_visible={has_login_form}",
+            )
+            next_log_time = time.time() + 5
         page.wait_for_timeout(1000)
     raise RuntimeError(
         "Login did not complete in time. Captcha may require manual solve in headed mode."
@@ -179,15 +225,43 @@ def _open_profile_menu(page: Page) -> None:
     profile_button.click()
 
 
-def _go_to_billetterie_space(page: Page) -> None:
+def _go_to_billetterie_space(
+    page: Page,
+    progress_cb: Optional[Callable[[str], None]] = None,
+) -> None:
     _open_profile_menu(page)
+    _log(progress_cb, f"Profile menu opened, URL: {page.url}")
     billetterie_item = page.get_by_text(
         re.compile(r"mon espace billetterie", re.IGNORECASE), exact=False
     ).first
     billetterie_item.wait_for(state="visible", timeout=15000)
     billetterie_item.click()
     page.wait_for_load_state("domcontentloaded")
-    page.locator("ul.manageEvtCardList").first.wait_for(timeout=20000)
+    _log(progress_cb, f"Clicked 'Mon espace billetterie', URL: {page.url}")
+
+    end_time = time.time() + 30
+    next_log_time = time.time()
+    ready_selectors = [
+        "ul.manageEvtCardList",
+        "ul.u-flex.manageEvtCardList",
+        "a:has(.manageEvtCardEnd)",
+        "main a:has-text('ORANGE VELODROME')",
+        "main :text-matches('MES BILLETS', 'i')",
+    ]
+
+    while time.time() < end_time:
+        for selector in ready_selectors:
+            if page.locator(selector).count() > 0:
+                _log(progress_cb, f"Billetterie page ready via selector: {selector}")
+                return
+        if time.time() >= next_log_time:
+            _log(progress_cb, f"Waiting billetterie cards... URL: {page.url}")
+            next_log_time = time.time() + 5
+        page.wait_for_timeout(500)
+
+    raise RuntimeError(
+        "Billetterie page opened but no ticket cards detected within timeout."
+    )
 
 
 def _event_cards_locator(page: Page):
@@ -196,6 +270,8 @@ def _event_cards_locator(page: Page):
         "ul.u-flex.manageEvtCardList > li > a",
         "li a:has(.manageEvtCardTitle)",
         "a:has(.manageEvtCardEnd)",
+        "main a:has-text('ORANGE VELODROME')",
+        "main a:has-text('Ligue 1')",
     ]
     for selector in selectors:
         locator = page.locator(selector)
@@ -246,9 +322,14 @@ def _extract_card_title(card) -> str:
     return candidates[-1] if candidates else ""
 
 
-def _choose_match(page: Page, match_query: str) -> str:
+def _choose_match(
+    page: Page,
+    match_query: str,
+    progress_cb: Optional[Callable[[str], None]] = None,
+) -> str:
     cards = _event_cards_locator(page)
     count = cards.count()
+    _log(progress_cb, f"Card candidate count: {count} for query '{match_query}'")
     if count == 0:
         raise RuntimeError("No match cards found in 'Mon espace billetterie'.")
 
@@ -260,9 +341,11 @@ def _choose_match(page: Page, match_query: str) -> str:
         card = cards.nth(idx)
         title = _extract_card_title(card)
         if not title:
+            _log(progress_cb, f"Card #{idx + 1}: no title extracted")
             continue
         available.append(title)
         normalized_title = _normalize(title)
+        _log(progress_cb, f"Card #{idx + 1}: title='{title}' normalized='{normalized_title}'")
         if normalized_query in normalized_title or normalized_title in normalized_query:
             found_card = card
             chosen_title = title
@@ -320,7 +403,12 @@ def _download_via_request(context: BrowserContext, url: str, destination_dir: Pa
     return target
 
 
-def _download_ticket_buttons(page: Page, context: BrowserContext, destination_dir: Path) -> List[Path]:
+def _download_ticket_buttons(
+    page: Page,
+    context: BrowserContext,
+    destination_dir: Path,
+    progress_cb: Optional[Callable[[str], None]] = None,
+) -> List[Path]:
     destination_dir.mkdir(parents=True, exist_ok=True)
     downloaded: List[Path] = []
 
@@ -328,12 +416,14 @@ def _download_ticket_buttons(page: Page, context: BrowserContext, destination_di
         "a:has(span.ctaFullLabel:has-text('Télécharger')), button:has-text('Télécharger')"
     )
     count = buttons.count()
+    _log(progress_cb, f"Download button count: {count}")
     if count == 0:
         raise RuntimeError("No 'Télécharger' button found for this match.")
 
     for idx in range(count):
         button = buttons.nth(idx)
         href = button.get_attribute("href")
+        _log(progress_cb, f"Processing download button #{idx + 1}, href={href}")
         pages_before = {id(p): p for p in context.pages}
 
         try:
@@ -343,14 +433,17 @@ def _download_ticket_buttons(page: Page, context: BrowserContext, destination_di
             target = _unique_file_path(destination_dir / download.suggested_filename)
             download.save_as(str(target))
             downloaded.append(target)
+            _log(progress_cb, f"Saved via expect_download: {target}")
             continue
         except TimeoutError:
+            _log(progress_cb, f"expect_download timeout on button #{idx + 1}, using fallback")
             pass
 
         # Fallback 1: direct authenticated request from href.
         if href and not href.startswith("#") and not href.lower().startswith("javascript:"):
             absolute_url = urljoin(page.url, href)
             downloaded.append(_download_via_request(context, absolute_url, destination_dir))
+            _log(progress_cb, f"Saved via direct request from href: {absolute_url}")
             continue
 
         # Fallback 2: popup opens with PDF URL.
@@ -366,6 +459,7 @@ def _download_ticket_buttons(page: Page, context: BrowserContext, destination_di
             popup.wait_for_load_state("domcontentloaded", timeout=15000)
             if popup.url and popup.url != "about:blank":
                 downloaded.append(_download_via_request(context, popup.url, destination_dir))
+                _log(progress_cb, f"Saved via popup URL request: {popup.url}")
             popup.close()
             continue
 
@@ -392,6 +486,7 @@ def _process_account(
     destination_root: Path,
     login_wait_seconds: int,
     step_wait_seconds: int,
+    debug_dir: Optional[Path],
     progress_cb: Optional[Callable[[str], None]],
 ) -> DownloadResult:
     page = context.new_page()
@@ -404,39 +499,65 @@ def _process_account(
         if not match_queries:
             raise RuntimeError("No match name provided.")
 
+        _log(
+            progress_cb,
+            f"[{account.email}] Starting account run. matches={match_queries} "
+            f"step_wait={step_wait_seconds}s login_wait={login_wait_seconds}s",
+        )
         _emit(progress_cb, f"[{account.email}] Opening site...")
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
         _accept_cookie_banner(page)
+        _snapshot_if_debug(page, debug_dir, "01_site_opened", progress_cb)
         _wait_between_actions(page, step_wait_seconds)
 
         _emit(progress_cb, f"[{account.email}] Logging in...")
         page.get_by_text(re.compile(r"se\s*connecter", re.IGNORECASE), exact=False).first.click(
             timeout=15000
         )
+        _snapshot_if_debug(page, debug_dir, "02_login_popup_opened", progress_cb)
         _wait_between_actions(page, step_wait_seconds)
         page.locator("input[name='popup-login-email']").fill(account.email)
         _wait_between_actions(page, step_wait_seconds)
         page.locator("input[name='popup-login-password']").fill(account.password)
         _wait_between_actions(page, step_wait_seconds)
         page.locator("#popup-login-login-form button[type='submit']").click()
+        _snapshot_if_debug(page, debug_dir, "03_login_submitted", progress_cb)
         _wait_between_actions(page, step_wait_seconds)
 
-        _wait_for_login_state(page, login_wait_seconds)
+        _wait_for_login_state(page, login_wait_seconds, progress_cb=progress_cb)
         _emit(progress_cb, f"[{account.email}] Opening billetterie space...")
-        _go_to_billetterie_space(page)
+        _go_to_billetterie_space(page, progress_cb=progress_cb)
+        _snapshot_if_debug(page, debug_dir, "04_billetterie_opened", progress_cb)
         _wait_between_actions(page, step_wait_seconds)
 
         for idx, query in enumerate(match_queries):
-            chosen_match = _choose_match(page, query)
+            chosen_match = _choose_match(page, query, progress_cb=progress_cb)
             matched_names.append(chosen_match)
             _emit(progress_cb, f"[{account.email}] Match selected: {chosen_match}")
+            _snapshot_if_debug(
+                page,
+                debug_dir,
+                f"05_match_selected_{idx + 1}_{_safe_slug(chosen_match)}",
+                progress_cb,
+            )
             _wait_between_actions(page, step_wait_seconds)
 
-            new_files = _download_ticket_buttons(page, context, account_dir)
+            new_files = _download_ticket_buttons(
+                page,
+                context,
+                account_dir,
+                progress_cb=progress_cb,
+            )
             saved_files.extend(new_files)
             _emit(
                 progress_cb,
                 f"[{account.email}] Downloaded {len(new_files)} file(s) for '{chosen_match}'.",
+            )
+            _snapshot_if_debug(
+                page,
+                debug_dir,
+                f"06_download_done_{idx + 1}_{_safe_slug(chosen_match)}",
+                progress_cb,
             )
             _wait_between_actions(page, step_wait_seconds)
 
@@ -444,11 +565,12 @@ def _process_account(
             if idx < len(match_queries) - 1:
                 page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
                 _wait_between_actions(page, step_wait_seconds)
-                _go_to_billetterie_space(page)
+                _go_to_billetterie_space(page, progress_cb=progress_cb)
                 _wait_between_actions(page, step_wait_seconds)
 
         _logout(page)
         _emit(progress_cb, f"[{account.email}] Logged out.")
+        _snapshot_if_debug(page, debug_dir, "07_logged_out", progress_cb)
         return DownloadResult(
             email=account.email,
             match_name=", ".join(matched_names) if matched_names else match_name,
@@ -456,6 +578,8 @@ def _process_account(
             success=True,
         )
     except Exception as exc:
+        _log(progress_cb, f"[{account.email}] ERROR: {exc}")
+        _snapshot_if_debug(page, debug_dir, "99_error_state", progress_cb)
         return DownloadResult(
             email=account.email,
             match_name=match_name,
@@ -475,6 +599,8 @@ def run_eticket_downloads(
     login_wait_seconds: int = 120,
     step_wait_seconds: int = 10,
     slow_mo_ms: int = 0,
+    debug: bool = False,
+    debug_dir: Path = Path("debug"),
     progress_cb: Optional[Callable[[str], None]] = None,
 ) -> List[DownloadResult]:
     output_path = Path(output_dir)
@@ -487,6 +613,9 @@ def run_eticket_downloads(
             for account in accounts:
                 context = browser.new_context(accept_downloads=True)
                 try:
+                    account_debug_dir = (
+                        Path(debug_dir) / _sanitize_segment(account.email) if debug else None
+                    )
                     result = _process_account(
                         context=context,
                         account=account,
@@ -494,6 +623,7 @@ def run_eticket_downloads(
                         destination_root=output_path,
                         login_wait_seconds=login_wait_seconds,
                         step_wait_seconds=step_wait_seconds,
+                        debug_dir=account_debug_dir,
                         progress_cb=progress_cb,
                     )
                     results.append(result)
@@ -540,6 +670,16 @@ def _build_cli() -> argparse.ArgumentParser:
         default=0,
         help="Slow down browser actions (ms) for debugging.",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable verbose logs + per-step screenshots/html dumps.",
+    )
+    parser.add_argument(
+        "--debug-dir",
+        default="debug",
+        help="Directory for debug screenshots/html when --debug is enabled.",
+    )
     return parser
 
 
@@ -561,6 +701,8 @@ def main() -> int:
         login_wait_seconds=args.login_wait_seconds,
         step_wait_seconds=args.step_wait_seconds,
         slow_mo_ms=args.slow_mo_ms,
+        debug=args.debug,
+        debug_dir=Path(args.debug_dir),
         progress_cb=print,
     )
 

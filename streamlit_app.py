@@ -35,6 +35,8 @@ with st.form("run_form"):
         value=10,
         step=1,
     )
+    debug = st.checkbox("Debug mode (verbose logs + screenshots/html)", value=True)
+    debug_dir = st.text_input("Debug output folder", value="debug")
     slow_mo_ms = st.number_input(
         "Slow motion per browser action (ms)",
         min_value=0,
@@ -87,6 +89,8 @@ if submitted:
             login_wait_seconds=int(login_wait_seconds),
             step_wait_seconds=int(step_wait_seconds),
             slow_mo_ms=int(slow_mo_ms),
+            debug=debug,
+            debug_dir=Path(debug_dir).expanduser(),
             progress_cb=log,
         )
     except Exception as exc:
