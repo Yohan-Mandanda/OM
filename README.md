@@ -62,6 +62,7 @@ Useful options:
 - `--step-wait-seconds 10`
 - `--slow-mo-ms 150`
 - `--debug --debug-dir debug`
+- `--log-file downloads/run.log`
 
 Downloads are saved under:
 
@@ -80,8 +81,10 @@ streamlit run streamlit_app.py
 Then:
 
 1. Upload CSV/XLSX file
-2. Enter match name (e.g. `Auxerre`, `Lille`, `Metz`)
-3. Click **Start download**
+2. Enter match name (e.g. `Auxerre` or `Auxerre,Lille`)
+3. Keep **Open browser window** enabled to see live browser actions
+4. Click **Start download**
+5. Read live logs in the app and in the log file path (default `downloads/run.log`)
 
 ## Notes / limitations
 

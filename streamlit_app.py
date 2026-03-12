@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import tempfile
+import time
 from pathlib import Path
+from queue import Empty, Queue
+from threading import Thread
 
 import streamlit as st
 
@@ -20,7 +23,10 @@ with st.form("run_form"):
         placeholder="Ex: Lille   or   Auxerre,Lille",
     )
     output_dir = st.text_input("Output folder", value="downloads")
-    headless = st.checkbox("Headless mode", value=False)
+    open_browser = st.checkbox(
+        "Open browser window (disable only for headless mode)",
+        value=True,
+    )
     login_wait_seconds = st.number_input(
         "Max wait for login / captcha solve (seconds)",
         min_value=30,
@@ -37,6 +43,7 @@ with st.form("run_form"):
     )
     debug = st.checkbox("Debug mode (verbose logs + screenshots/html)", value=True)
     debug_dir = st.text_input("Debug output folder", value="debug")
+    log_file = st.text_input("Log file in your env", value="downloads/run.log")
     slow_mo_ms = st.number_input(
         "Slow motion per browser action (ms)",
         min_value=0,
@@ -57,10 +64,7 @@ if submitted:
 
     logs_placeholder = st.empty()
     live_logs = []
-
-    def log(msg: str) -> None:
-        live_logs.append(msg)
-        logs_placeholder.code("\n".join(live_logs[-25:]), language="text")
+    log_queue: Queue[str] = Queue()
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=Path(spreadsheet.name).suffix) as tmp:
         tmp.write(spreadsheet.getbuffer())
@@ -79,23 +83,69 @@ if submitted:
         st.stop()
 
     st.info(f"Loaded {len(accounts)} account(s). Running automation...")
+    output_path = Path(output_dir).expanduser()
+    log_path = Path(log_file).expanduser()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("", encoding="utf-8")
 
-    try:
-        results = run_eticket_downloads(
-            accounts=accounts,
-            match_name=match_name.strip(),
-            output_dir=Path(output_dir).expanduser(),
-            headless=headless,
-            login_wait_seconds=int(login_wait_seconds),
-            step_wait_seconds=int(step_wait_seconds),
-            slow_mo_ms=int(slow_mo_ms),
-            debug=debug,
-            debug_dir=Path(debug_dir).expanduser(),
-            progress_cb=log,
-        )
-    except Exception as exc:
-        st.error(f"Automation crashed: {exc}")
+    run_state = {"results": None, "error": None}
+
+    def log(msg: str) -> None:
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(f"{msg}\n")
+        log_queue.put(msg)
+
+    def run_worker() -> None:
+        try:
+            run_state["results"] = run_eticket_downloads(
+                accounts=accounts,
+                match_name=match_name.strip(),
+                output_dir=output_path,
+                headless=not open_browser,
+                login_wait_seconds=int(login_wait_seconds),
+                step_wait_seconds=int(step_wait_seconds),
+                slow_mo_ms=int(slow_mo_ms),
+                debug=debug,
+                debug_dir=Path(debug_dir).expanduser(),
+                progress_cb=log,
+            )
+        except Exception as exc:  # pragma: no cover - UI runtime path
+            run_state["error"] = exc
+
+    worker = Thread(target=run_worker, daemon=True)
+    worker.start()
+
+    with st.spinner("Automation is running..."):
+        while worker.is_alive():
+            updated = False
+            while True:
+                try:
+                    line = log_queue.get_nowait()
+                    live_logs.append(line)
+                    updated = True
+                except Empty:
+                    break
+            if updated:
+                logs_placeholder.code("\n".join(live_logs[-200:]), language="text")
+            time.sleep(0.2)
+
+    worker.join(timeout=1)
+    while True:
+        try:
+            line = log_queue.get_nowait()
+            live_logs.append(line)
+        except Empty:
+            break
+    if live_logs:
+        logs_placeholder.code("\n".join(live_logs[-200:]), language="text")
+
+    st.caption(f"Log file: {log_path}")
+
+    if run_state["error"] is not None:
+        st.error(f"Automation crashed: {run_state['error']}")
         st.stop()
+
+    results = run_state["results"] or []
 
     success_count = sum(1 for r in results if r.success)
     fail_count = len(results) - success_count

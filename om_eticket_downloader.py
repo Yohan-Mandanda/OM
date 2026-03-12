@@ -680,7 +680,23 @@ def _build_cli() -> argparse.ArgumentParser:
         default="debug",
         help="Directory for debug screenshots/html when --debug is enabled.",
     )
+    parser.add_argument(
+        "--log-file",
+        default=None,
+        help="Optional log file path. Default: <output-dir>/run.log",
+    )
     return parser
+
+
+def _build_progress_logger(log_file: Path) -> Callable[[str], None]:
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+
+    def _progress(message: str) -> None:
+        print(message)
+        with log_file.open("a", encoding="utf-8") as f:
+            f.write(f"{message}\n")
+
+    return _progress
 
 
 def main() -> int:
@@ -692,7 +708,11 @@ def main() -> int:
         print("No accounts found in the input file.")
         return 1
 
+    log_file = Path(args.log_file) if args.log_file else Path(args.output_dir) / "run.log"
+    progress_logger = _build_progress_logger(log_file)
+
     print(f"Loaded {len(accounts)} account(s). Starting automation...")
+    print(f"Logs file: {log_file}")
     results = run_eticket_downloads(
         accounts=accounts,
         match_name=args.match,
@@ -703,7 +723,7 @@ def main() -> int:
         slow_mo_ms=args.slow_mo_ms,
         debug=args.debug,
         debug_dir=Path(args.debug_dir),
-        progress_cb=print,
+        progress_cb=progress_logger,
     )
 
     failures = [r for r in results if not r.success]
