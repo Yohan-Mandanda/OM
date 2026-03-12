@@ -25,6 +25,13 @@ with st.form("run_form"):
         value=120,
         step=15,
     )
+    step_wait_seconds = st.number_input(
+        "Wait between key actions (seconds)",
+        min_value=0,
+        max_value=30,
+        value=10,
+        step=1,
+    )
     slow_mo_ms = st.number_input(
         "Slow motion per browser action (ms)",
         min_value=0,
@@ -75,6 +82,7 @@ if submitted:
             output_dir=Path(output_dir).expanduser(),
             headless=headless,
             login_wait_seconds=int(login_wait_seconds),
+            step_wait_seconds=int(step_wait_seconds),
             slow_mo_ms=int(slow_mo_ms),
             progress_cb=log,
         )

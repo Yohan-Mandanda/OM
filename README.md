@@ -50,6 +50,7 @@ Useful options:
 
 - `--headless` (not recommended if captcha appears)
 - `--login-wait-seconds 180`
+- `--step-wait-seconds 10`
 - `--slow-mo-ms 150`
 
 Downloads are saved under:

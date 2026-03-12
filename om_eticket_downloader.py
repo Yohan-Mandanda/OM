@@ -117,6 +117,11 @@ def _emit(progress_cb: Optional[Callable[[str], None]], message: str) -> None:
         progress_cb(message)
 
 
+def _wait_between_actions(page: Page, step_wait_seconds: int) -> None:
+    if step_wait_seconds > 0:
+        page.wait_for_timeout(step_wait_seconds * 1000)
+
+
 def _accept_cookie_banner(page: Page) -> None:
     cookie_labels = [
         "Tout accepter",
@@ -318,6 +323,7 @@ def _process_account(
     match_name: str,
     destination_root: Path,
     login_wait_seconds: int,
+    step_wait_seconds: int,
     progress_cb: Optional[Callable[[str], None]],
 ) -> DownloadResult:
     page = context.new_page()
@@ -328,24 +334,32 @@ def _process_account(
         _emit(progress_cb, f"[{account.email}] Opening site...")
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
         _accept_cookie_banner(page)
+        _wait_between_actions(page, step_wait_seconds)
 
         _emit(progress_cb, f"[{account.email}] Logging in...")
         page.get_by_text(re.compile(r"se\s*connecter", re.IGNORECASE), exact=False).first.click(
             timeout=15000
         )
+        _wait_between_actions(page, step_wait_seconds)
         page.locator("input[name='popup-login-email']").fill(account.email)
+        _wait_between_actions(page, step_wait_seconds)
         page.locator("input[name='popup-login-password']").fill(account.password)
+        _wait_between_actions(page, step_wait_seconds)
         page.locator("#popup-login-login-form button[type='submit']").click()
+        _wait_between_actions(page, step_wait_seconds)
 
         _wait_for_login_state(page, login_wait_seconds)
         _emit(progress_cb, f"[{account.email}] Opening billetterie space...")
         _go_to_billetterie_space(page)
+        _wait_between_actions(page, step_wait_seconds)
 
         chosen_match = _choose_match(page, match_name)
         _emit(progress_cb, f"[{account.email}] Match selected: {chosen_match}")
+        _wait_between_actions(page, step_wait_seconds)
 
         saved_files = _download_ticket_buttons(page, context, account_dir)
         _emit(progress_cb, f"[{account.email}] Downloaded {len(saved_files)} file(s).")
+        _wait_between_actions(page, step_wait_seconds)
 
         _logout(page)
         _emit(progress_cb, f"[{account.email}] Logged out.")
@@ -373,6 +387,7 @@ def run_eticket_downloads(
     output_dir: Path,
     headless: bool = False,
     login_wait_seconds: int = 120,
+    step_wait_seconds: int = 10,
     slow_mo_ms: int = 0,
     progress_cb: Optional[Callable[[str], None]] = None,
 ) -> List[DownloadResult]:
@@ -392,6 +407,7 @@ def run_eticket_downloads(
                         match_name=match_name,
                         destination_root=output_path,
                         login_wait_seconds=login_wait_seconds,
+                        step_wait_seconds=step_wait_seconds,
                         progress_cb=progress_cb,
                     )
                     results.append(result)
@@ -427,6 +443,12 @@ def _build_cli() -> argparse.ArgumentParser:
         help="How long to wait for login completion/captcha solve.",
     )
     parser.add_argument(
+        "--step-wait-seconds",
+        type=int,
+        default=10,
+        help="Pause between key UI actions (helps with slow page transitions).",
+    )
+    parser.add_argument(
         "--slow-mo-ms",
         type=int,
         default=0,
@@ -451,6 +473,7 @@ def main() -> int:
         output_dir=Path(args.output_dir),
         headless=args.headless,
         login_wait_seconds=args.login_wait_seconds,
+        step_wait_seconds=args.step_wait_seconds,
         slow_mo_ms=args.slow_mo_ms,
         progress_cb=print,
     )
