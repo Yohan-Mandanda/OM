@@ -123,6 +123,17 @@ def _click_in_order(page: Page, selectors: list[str], action_name: str) -> None:
     raise RuntimeError(f"Could not perform step: {action_name}. Tried selectors: {selectors}")
 
 
+def _is_any_selector_visible(page: Page, selectors: list[str]) -> bool:
+    for selector in selectors:
+        try:
+            locator = page.locator(selector).first
+            if locator.count() > 0 and locator.is_visible():
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _is_captcha_present(page: Page) -> bool:
     selectors = [
         "iframe[src*='turnstile']",
@@ -175,28 +186,43 @@ def _handle_captcha_if_present(page: Page, headless: bool, captcha_wait_seconds:
         print("Headless mode reduces captcha solve reliability. Consider running without --headless.")
 
     end_time = time.time() + max(captcha_wait_seconds, 30)
-    last_auto_attempt = 0.0
-    notified_manual = False
+    if not headless:
+        print("Please solve the captcha manually in the opened browser window.")
 
     while time.time() < end_time:
         if not _is_captcha_present(page):
             page.wait_for_timeout(800)
             return
-
-        # Retry automatic interaction occasionally, then rely on manual solve.
-        if time.time() - last_auto_attempt > 4:
-            _try_auto_click_captcha(page)
-            last_auto_attempt = time.time()
-
-        if not headless and not notified_manual:
-            print("Please solve the captcha manually in the opened browser window.")
-            notified_manual = True
-
         page.wait_for_timeout(1000)
 
     raise RuntimeError(
         f"Captcha was not solved within {captcha_wait_seconds} seconds. "
         "Please rerun and solve captcha manually sooner (headed mode recommended)."
+    )
+
+
+def _wait_for_logged_in_state(page: Page, wait_seconds: int) -> None:
+    menu_selectors = [
+        STEP_1_SELECTOR,
+        "button[aria-haspopup='menu'] div.min-w-0",
+        "button:has(div.min-w-0)",
+    ]
+    end_time = time.time() + max(wait_seconds, 30)
+    notified = False
+
+    while time.time() < end_time:
+        if _is_any_selector_visible(page, menu_selectors):
+            return
+
+        if _is_captcha_present(page) and not notified:
+            print("Captcha detected. Please solve it manually in the opened browser window.")
+            notified = True
+
+        page.wait_for_timeout(1000)
+
+    raise RuntimeError(
+        f"Logged-in state was not detected within {wait_seconds} seconds. "
+        "Open the browser window, log in manually (and solve captcha if shown), then retry."
     )
 
 
@@ -236,11 +262,16 @@ def _open_billing_portal(
     context: BrowserContext,
     headless: bool,
     captcha_wait_seconds: int,
+    auto_login_start: bool,
 ) -> Page:
     page.wait_for_load_state("domcontentloaded")
     page.wait_for_timeout(1200)
 
-    _run_login_start_flow(page, headless=headless, captcha_wait_seconds=captcha_wait_seconds)
+    if auto_login_start:
+        _run_login_start_flow(page, headless=headless, captcha_wait_seconds=captcha_wait_seconds)
+    else:
+        print("Waiting for real logged-in session in current browser profile...")
+        _wait_for_logged_in_state(page, wait_seconds=captcha_wait_seconds)
 
     _click_in_order(
         page,
@@ -375,6 +406,7 @@ def _run(
     headless: bool,
     user_data_dir: Path,
     captcha_wait_seconds: int,
+    auto_login_start: bool,
 ) -> Path:
     if _PLAYWRIGHT_IMPORT_ERROR is not None or sync_playwright is None:
         raise RuntimeError(
@@ -397,6 +429,7 @@ def _run(
                 context,
                 headless=headless,
                 captcha_wait_seconds=captcha_wait_seconds,
+                auto_login_start=auto_login_start,
             )
             invoice_page = _click_month_invoice(billing_page, month, context)
             return _download_invoice(invoice_page, output_dir, month)
@@ -430,6 +463,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=240,
         help="How long to wait for captcha resolution after login email submit.",
     )
+    parser.add_argument(
+        "--auto-login-start",
+        action="store_true",
+        help="Run the scripted login-popup start flow before billing steps. "
+        "Disabled by default to reduce bot-detection/captcha triggers.",
+    )
     return parser
 
 
@@ -458,6 +497,7 @@ def main() -> int:
             headless=args.headless,
             user_data_dir=profile_dir,
             captcha_wait_seconds=int(args.captcha_wait_seconds),
+            auto_login_start=bool(args.auto_login_start),
         )
     except Exception as exc:
         print(f"Invoice download failed: {exc}")

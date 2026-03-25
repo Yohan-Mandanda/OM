@@ -35,7 +35,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--captcha-wait-seconds",
         type=int,
         default=240,
-        help="How long to wait for captcha resolution after login submit.",
+        help="How long to wait for manual captcha/login completion in browser.",
+    )
+    parser.add_argument(
+        "--auto-login-start",
+        action="store_true",
+        help="Run scripted login-start clicks before billing steps "
+        "(can trigger stronger bot checks).",
     )
     return parser
 
@@ -67,6 +73,8 @@ def main() -> int:
     ]
     if args.headless:
         cmd.append("--headless")
+    if args.auto_login_start:
+        cmd.append("--auto-login-start")
 
     completed = subprocess.run(cmd)
     return completed.returncode
