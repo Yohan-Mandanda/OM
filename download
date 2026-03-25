@@ -31,6 +31,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run browser in headless mode.",
     )
+    parser.add_argument(
+        "--captcha-wait-seconds",
+        type=int,
+        default=240,
+        help="How long to wait for captcha resolution after login submit.",
+    )
     return parser
 
 
@@ -56,6 +62,8 @@ def main() -> int:
         args.output_dir,
         "--user-data-dir",
         args.user_data_dir,
+        "--captcha-wait-seconds",
+        str(args.captcha_wait_seconds),
     ]
     if args.headless:
         cmd.append("--headless")

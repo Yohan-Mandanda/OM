@@ -123,7 +123,84 @@ def _click_in_order(page: Page, selectors: list[str], action_name: str) -> None:
     raise RuntimeError(f"Could not perform step: {action_name}. Tried selectors: {selectors}")
 
 
-def _run_login_start_flow(page: Page) -> None:
+def _is_captcha_present(page: Page) -> bool:
+    selectors = [
+        "iframe[src*='turnstile']",
+        "iframe[src*='captcha']",
+        "iframe[title*='challenge']",
+        "iframe[title*='captcha']",
+        "input[name='cf-turnstile-response']",
+        "text=/verify you are human|captcha|security check/i",
+    ]
+    for selector in selectors:
+        try:
+            if page.locator(selector).count() > 0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _try_auto_click_captcha(page: Page) -> bool:
+    # Best-effort attempt for common widget styles (Cloudflare/ReCAPTCHA).
+    frame_selectors = [
+        "iframe[src*='turnstile']",
+        "iframe[src*='captcha']",
+        "iframe[title*='challenge']",
+        "iframe[title*='captcha']",
+    ]
+    checkbox_selectors = [
+        "input[type='checkbox']",
+        "#recaptcha-anchor",
+        "div.recaptcha-checkbox-border",
+    ]
+
+    for frame_selector in frame_selectors:
+        for checkbox_selector in checkbox_selectors:
+            try:
+                frame_checkbox = page.frame_locator(frame_selector).first.locator(checkbox_selector).first
+                frame_checkbox.click(timeout=2000)
+                return True
+            except Exception:
+                continue
+    return False
+
+
+def _handle_captcha_if_present(page: Page, headless: bool, captcha_wait_seconds: int) -> None:
+    if not _is_captcha_present(page):
+        return
+
+    print("Captcha detected after login start.")
+    if headless:
+        print("Headless mode reduces captcha solve reliability. Consider running without --headless.")
+
+    end_time = time.time() + max(captcha_wait_seconds, 30)
+    last_auto_attempt = 0.0
+    notified_manual = False
+
+    while time.time() < end_time:
+        if not _is_captcha_present(page):
+            page.wait_for_timeout(800)
+            return
+
+        # Retry automatic interaction occasionally, then rely on manual solve.
+        if time.time() - last_auto_attempt > 4:
+            _try_auto_click_captcha(page)
+            last_auto_attempt = time.time()
+
+        if not headless and not notified_manual:
+            print("Please solve the captcha manually in the opened browser window.")
+            notified_manual = True
+
+        page.wait_for_timeout(1000)
+
+    raise RuntimeError(
+        f"Captcha was not solved within {captcha_wait_seconds} seconds. "
+        "Please rerun and solve captcha manually sooner (headed mode recommended)."
+    )
+
+
+def _run_login_start_flow(page: Page, headless: bool, captcha_wait_seconds: int) -> None:
     page.wait_for_load_state("domcontentloaded")
     page.wait_for_timeout(1000)
 
@@ -151,13 +228,19 @@ def _run_login_start_flow(page: Page) -> None:
         "submit login email in popup",
     )
     page.wait_for_timeout(1800)
+    _handle_captcha_if_present(page, headless=headless, captcha_wait_seconds=captcha_wait_seconds)
 
 
-def _open_billing_portal(page: Page, context: BrowserContext) -> Page:
+def _open_billing_portal(
+    page: Page,
+    context: BrowserContext,
+    headless: bool,
+    captcha_wait_seconds: int,
+) -> Page:
     page.wait_for_load_state("domcontentloaded")
     page.wait_for_timeout(1200)
 
-    _run_login_start_flow(page)
+    _run_login_start_flow(page, headless=headless, captcha_wait_seconds=captcha_wait_seconds)
 
     _click_in_order(
         page,
@@ -286,7 +369,13 @@ def _download_invoice(invoice_page: Page, destination_dir: Path, month_text: str
     raise RuntimeError("Could not trigger invoice download button.")
 
 
-def _run(month: str, output_dir: Path, headless: bool, user_data_dir: Path) -> Path:
+def _run(
+    month: str,
+    output_dir: Path,
+    headless: bool,
+    user_data_dir: Path,
+    captcha_wait_seconds: int,
+) -> Path:
     if _PLAYWRIGHT_IMPORT_ERROR is not None or sync_playwright is None:
         raise RuntimeError(
             "Missing dependency 'playwright'. Install requirements with "
@@ -303,7 +392,12 @@ def _run(month: str, output_dir: Path, headless: bool, user_data_dir: Path) -> P
         try:
             page = context.new_page()
             page.goto(CHATGPT_URL, wait_until="domcontentloaded", timeout=60000)
-            billing_page = _open_billing_portal(page, context)
+            billing_page = _open_billing_portal(
+                page,
+                context,
+                headless=headless,
+                captcha_wait_seconds=captcha_wait_seconds,
+            )
             invoice_page = _click_month_invoice(billing_page, month, context)
             return _download_invoice(invoice_page, output_dir, month)
         finally:
@@ -330,6 +424,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run browser headless. Keep headed mode if selectors fail and you need visual debugging.",
     )
+    parser.add_argument(
+        "--captcha-wait-seconds",
+        type=int,
+        default=240,
+        help="How long to wait for captcha resolution after login email submit.",
+    )
     return parser
 
 
@@ -352,7 +452,13 @@ def main() -> int:
     print(f"Output dir:  {output_dir}")
 
     try:
-        saved_file = _run(month=month, output_dir=output_dir, headless=args.headless, user_data_dir=profile_dir)
+        saved_file = _run(
+            month=month,
+            output_dir=output_dir,
+            headless=args.headless,
+            user_data_dir=profile_dir,
+            captcha_wait_seconds=int(args.captcha_wait_seconds),
+        )
     except Exception as exc:
         print(f"Invoice download failed: {exc}")
         return 1

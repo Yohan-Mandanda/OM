@@ -60,11 +60,14 @@ download invoice chat gbt "March"
 download invoice chat gbt "March" --headless
 download invoice chat gbt "March" --output-dir /tmp/invoices
 download invoice chat gbt "March" --user-data-dir /tmp/chatgpt-profile
+download invoice chat gbt "March" --captcha-wait-seconds 300
 ```
 
 Notes:
 
 - `--user-data-dir` keeps the browser session state (cookies/login) between runs.
+- If captcha appears, the script attempts a basic auto-click and then waits for manual solve.
+- In captcha scenarios, headed mode is recommended (avoid `--headless`).
 - If ChatGPT updates UI selectors, adjust selectors inside `chatgpt_invoice_downloader.py`.
 
 ## Account file format
