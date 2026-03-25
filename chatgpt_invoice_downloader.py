@@ -8,7 +8,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Optional
 
-from playwright.sync_api import BrowserContext, Download, Page, TimeoutError, sync_playwright
+try:
+    from playwright.sync_api import (
+        BrowserContext,
+        Download,
+        Page,
+        TimeoutError as PlaywrightTimeoutError,
+        sync_playwright,
+    )
+    _PLAYWRIGHT_IMPORT_ERROR: Optional[Exception] = None
+except ModuleNotFoundError as exc:
+    BrowserContext = Download = Page = object  # type: ignore[assignment]
+    PlaywrightTimeoutError = TimeoutError  # type: ignore[assignment]
+    sync_playwright = None  # type: ignore[assignment]
+    _PLAYWRIGHT_IMPORT_ERROR = exc
 
 
 CHATGPT_URL = "https://chatgpt.com/"
@@ -225,7 +238,7 @@ def _download_invoice(invoice_page: Page, destination_dir: Path, month_text: str
             target = _unique_path(destination_dir / suggested)
             download.save_as(str(target))
             return target
-        except TimeoutError:
+        except PlaywrightTimeoutError:
             continue
         except Exception:
             continue
@@ -234,6 +247,13 @@ def _download_invoice(invoice_page: Page, destination_dir: Path, month_text: str
 
 
 def _run(month: str, output_dir: Path, headless: bool, user_data_dir: Path) -> Path:
+    if _PLAYWRIGHT_IMPORT_ERROR is not None or sync_playwright is None:
+        raise RuntimeError(
+            "Missing dependency 'playwright'. Install requirements with "
+            "'pip install -r requirements.txt' and run "
+            "'python -m playwright install chromium' (or python3 -m ...)."
+        ) from _PLAYWRIGHT_IMPORT_ERROR
+
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(
             user_data_dir=str(user_data_dir),
