@@ -25,8 +25,16 @@ except ModuleNotFoundError as exc:
 
 
 CHATGPT_URL = "https://chatgpt.com/"
+LOGIN_EMAIL = "denvercdp1@gmail.com"
 
 # User-provided selectors from the requested click flow.
+LOGIN_STEP_1_SELECTOR = (
+    "#stage-slideover-sidebar > div > div.opacity-100.motion-safe\\:transition-opacity.motion-safe\\:duration-150."
+    "motion-safe\\:ease-linear.h-full.w-\\(--sidebar-width\\).overflow-x-clip.overflow-y-auto.text-clip.whitespace-nowrap."
+    "bg-\\(--sidebar-bg\\,var\\(--bg-elevated-secondary\\)\\) > nav > div.sticky.bottom-0.p-5.border-token-border-heavy."
+    "border-t > div.-mx-1\\.5 > button > div"
+)
+LOGIN_STEP_3_SELECTOR = "#radix-_r_5k_ > div > div > div > form > button > div"
 STEP_1_SELECTOR = "#radix-_R_bhqld36753kqicm_ > div.min-w-0"
 STEP_2_SELECTOR = "#radix-_R_bhqld36753kqicmH1_ > div > div:nth-child(7)"
 STEP_3_SELECTOR = "#radix-_r_8i_-trigger-Account > div.flex.min-w-0.grow.items-center.gap-2\\.5"
@@ -115,9 +123,41 @@ def _click_in_order(page: Page, selectors: list[str], action_name: str) -> None:
     raise RuntimeError(f"Could not perform step: {action_name}. Tried selectors: {selectors}")
 
 
+def _run_login_start_flow(page: Page) -> None:
+    page.wait_for_load_state("domcontentloaded")
+    page.wait_for_timeout(1000)
+
+    _click_in_order(
+        page,
+        [
+            LOGIN_STEP_1_SELECTOR,
+            "#stage-slideover-sidebar button div",
+            "#stage-slideover-sidebar button",
+        ],
+        "open login popup from sidebar",
+    )
+
+    email_input = page.locator("#email").first
+    email_input.wait_for(state="visible", timeout=20000)
+    email_input.fill(LOGIN_EMAIL, timeout=10000)
+
+    _click_in_order(
+        page,
+        [
+            LOGIN_STEP_3_SELECTOR,
+            "#radix-_r_5k_ form button",
+            "form button:has-text('Continue')",
+        ],
+        "submit login email in popup",
+    )
+    page.wait_for_timeout(1800)
+
+
 def _open_billing_portal(page: Page, context: BrowserContext) -> Page:
     page.wait_for_load_state("domcontentloaded")
     page.wait_for_timeout(1200)
+
+    _run_login_start_flow(page)
 
     _click_in_order(
         page,
