@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="download",
+        description='Run invoice automation via: download invoice chat gbt "Month"',
+    )
+    parser.add_argument("action", help="Must be: invoice")
+    parser.add_argument("service", help="Must be: chat")
+    parser.add_argument("provider", help="Must be: gbt")
+    parser.add_argument("month", help='Month name, for example: "March"')
+    parser.add_argument(
+        "--output-dir",
+        default="downloads/chatgpt-invoices",
+        help="Folder where invoice PDF is saved.",
+    )
+    parser.add_argument(
+        "--user-data-dir",
+        default=".chatgpt-profile",
+        help="Persistent browser profile directory for logged-in session.",
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Run browser in headless mode.",
+    )
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if args.action.lower() != "invoice" or args.service.lower() != "chat" or args.provider.lower() != "gbt":
+        parser.error('Expected usage: download invoice chat gbt "Month"')
+
+    root_dir = Path(__file__).resolve().parent
+    target_script = root_dir / "chatgpt_invoice_downloader.py"
+    if not target_script.exists():
+        print(f"Missing script: {target_script}")
+        return 1
+
+    cmd = [
+        sys.executable,
+        str(target_script),
+        "--month",
+        args.month,
+        "--output-dir",
+        args.output_dir,
+        "--user-data-dir",
+        args.user_data_dir,
+    ]
+    if args.headless:
+        cmd.append("--headless")
+
+    completed = subprocess.run(cmd)
+    return completed.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
