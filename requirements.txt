@@ -1,3 +1,7 @@
 playwright
 streamlit
 openpyxl
+pandas
+numpy
+plotly
+scikit-learn
