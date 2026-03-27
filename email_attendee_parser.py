@@ -22,9 +22,11 @@ BANNED_WORDS = {
 }
 
 ORDER_ID_PATTERNS = [
-    r"order(?:\s+id)?\s*[:#-]?\s*([a-z0-9]{5,})",
-    r"the customer for order\s*#\s*([a-z0-9]+)",
-    r"for\s+order\s*#?\s*([a-z0-9]{5,})",
+    r"order\s*id\s*[:#-]?\s*([a-z0-9-]{5,})",
+    r"order\s*#\s*([a-z0-9-]{5,})",
+    r"the customer for order\s*#\s*([a-z0-9-]{5,})",
+    r"for\s+order\s*#?\s*([a-z0-9-]{5,})",
+    r"order\s*-\s*([a-z0-9-]{5,})",
 ]
 
 ATTENDEE_HEADER_RE = re.compile(r"^(attendee|ticket holder)\s*#?\s*(\d+)\s*:?\s*$", re.IGNORECASE)
@@ -124,7 +126,10 @@ def extract_order_id(text: str) -> str | None:
     for pattern in ORDER_ID_PATTERNS:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
-            return match.group(1).strip().upper()
+            candidate = match.group(1).strip().upper()
+            # Keep only IDs that include at least one digit.
+            if re.search(r"\d", candidate):
+                return candidate
     return None
 
 
@@ -215,8 +220,7 @@ def _extract_table_blocks(content: str) -> list[str]:
         rows: list[list[str]] = []
         for tr in table.find_all("tr"):
             cells = [_normalize_space(cell.get_text(" ", strip=True)) for cell in tr.find_all(["th", "td"])]
-            cells = [c for c in cells if c]
-            if cells:
+            if any(cells):
                 rows.append(cells)
 
         if len(rows) < 2:
