@@ -166,6 +166,50 @@ class EmailAttendeeParserTests(unittest.TestCase):
         self.assertTrue(result["should_skip"])
         self.assertTrue(should_skip_email(NO_ATTENDEE))
 
+    def test_nested_table_header_noise_does_not_create_fake_attendees(self) -> None:
+        html = """
+        <html>
+          <body>
+            <table>
+              <tbody>
+                <tr>
+                  <td>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>First Name</th>
+                          <th>Last Name</th>
+                          <th>Email</th>
+                          <th>Nationality</th>
+                          <th>Date Of Birth</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>Elena</td>
+                          <td>Riboldi</td>
+                          <td></td>
+                          <td>Italy</td>
+                          <td>29-Dec-1984</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </body>
+        </html>
+        """
+        result = parse_email_content(html)
+        self.assertEqual(len(result["attendee_blocks"]), 1)
+        block = result["attendee_blocks"][0]
+        self.assertIn("First Name: Elena", block)
+        self.assertIn("Last Name: Riboldi", block)
+        self.assertIn("Nationality: Italy", block)
+        self.assertIn("Date Of Birth: 29-Dec-1984", block)
+        self.assertNotIn("First Name: Last Name", result["attendee_raw_text"])
+
 
 if __name__ == "__main__":
     unittest.main()

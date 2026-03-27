@@ -218,10 +218,25 @@ def _extract_table_blocks(content: str) -> list[str]:
     blocks: list[str] = []
     for table in soup.find_all("table"):
         rows: list[list[str]] = []
-        for tr in table.find_all("tr"):
-            cells = [_normalize_space(cell.get_text(" ", strip=True)) for cell in tr.find_all(["th", "td"])]
-            if any(cells):
-                rows.append(cells)
+        # Read rows from direct row containers only (thead/tbody/tfoot/table),
+        # and direct cells only. This avoids nested table pollution.
+        row_parents = table.find_all(["thead", "tbody", "tfoot"], recursive=False)
+        if not row_parents:
+            row_parents = [table]
+
+        seen_rows = set()
+        for parent in row_parents:
+            for tr in parent.find_all("tr", recursive=False):
+                marker = id(tr)
+                if marker in seen_rows:
+                    continue
+                seen_rows.add(marker)
+                cells = [
+                    _normalize_space(cell.get_text(" ", strip=True))
+                    for cell in tr.find_all(["th", "td"], recursive=False)
+                ]
+                if any(cells):
+                    rows.append(cells)
 
         if len(rows) < 2:
             continue
