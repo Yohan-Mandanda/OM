@@ -326,6 +326,72 @@ def _extract_labeled_blocks(lines: list[str]) -> list[str]:
     return _dedupe_blocks(blocks)
 
 
+def _extract_split_label_value_blocks(lines: list[str]) -> list[str]:
+    """
+    Handle templates where labels and values are split across lines/cells, e.g.:
+      Full Name:
+      Tim Kosak
+    and where attendee headers can be split too:
+      Ticket Holder #
+      1
+    """
+    groups: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    group_order: list[str] = []
+    current_group = "1"
+    i = 0
+
+    while i < len(lines):
+        line = _normalize_space(lines[i])
+        lower = line.lower()
+
+        # Ticket holder header can be "Ticket Holder # 1" or split in two lines.
+        holder_match = re.match(r"^ticket holder\s*#?\s*(\d+)?\s*$", lower, re.IGNORECASE)
+        if holder_match:
+            index = holder_match.group(1)
+            if not index and i + 1 < len(lines) and re.fullmatch(r"\d+", _normalize_space(lines[i + 1])):
+                index = _normalize_space(lines[i + 1])
+                i += 1
+            if index:
+                current_group = index
+                if current_group not in group_order:
+                    group_order.append(current_group)
+            i += 1
+            continue
+
+        # Label with inline value is already handled by _extract_labeled_blocks.
+        # Here we specifically parse "Label:" followed by value on the next line.
+        label_only = re.match(r"^(?P<label>[A-Za-zÀ-ÖØ-öø-ÿ0-9\s'()/\.-]+?)\s*:\s*$", line)
+        if label_only and i + 1 < len(lines):
+            label = _normalize_space(label_only.group("label"))
+            canonical = _canonicalize_label(label)
+            if canonical:
+                value = _sanitize_value(_normalize_space(lines[i + 1]))
+                if value and not _line_is_noise(value):
+                    if current_group not in group_order:
+                        group_order.append(current_group)
+                    groups[current_group].append((canonical, value))
+                    i += 2
+                    continue
+
+        i += 1
+
+    blocks: list[str] = []
+    for group_key in group_order:
+        fields = groups.get(group_key, [])
+        if not fields:
+            continue
+        fields = sorted(fields, key=lambda item: FIELD_PRIORITY.get(item[0], 999))
+        if not any(
+            field in {"full_name", "first_name", "last_name", "date_of_birth", "fan_id", "email"}
+            for field, _ in fields
+        ):
+            continue
+        block_lines = [f"{DISPLAY_LABELS[field]}: {value}" for field, value in fields]
+        blocks.append("\n".join(block_lines))
+
+    return _dedupe_blocks(blocks)
+
+
 def _extract_triplet_blocks(lines: list[str]) -> list[str]:
     blocks = []
     i = 0
@@ -392,6 +458,7 @@ def extract_attendee_blocks(content: str) -> list[str]:
     blocks = []
     blocks.extend(_extract_table_blocks(content))
     blocks.extend(_extract_labeled_blocks(zone))
+    blocks.extend(_extract_split_label_value_blocks(zone))
 
     if not blocks:
         blocks.extend(_extract_triplet_blocks(zone))

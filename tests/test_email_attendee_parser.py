@@ -210,6 +210,39 @@ class EmailAttendeeParserTests(unittest.TestCase):
         self.assertIn("Date Of Birth: 29-Dec-1984", block)
         self.assertNotIn("First Name: Last Name", result["attendee_raw_text"])
 
+    def test_extracts_ticket_holder_split_label_value_table(self) -> None:
+        html = """
+        <html>
+          <body>
+            <table>
+              <tbody>
+                <tr><td><strong>Order ID:</strong> 637266731</td></tr>
+                <tr><td><strong>Ticket Holder #</strong></td></tr>
+                <tr><td>1</td></tr>
+                <tr><td>Full Name:</td><td width="5"></td><td><strong>Tim Kosak</strong></td></tr>
+                <tr><td>Date of Birth:</td><td width="5"></td><td>2002-04-11</td></tr>
+                <tr><td>Country of Birth:</td><td width="5"></td><td>Germany</td></tr>
+                <tr><td><strong>Ticket Holder #</strong></td></tr>
+                <tr><td>2</td></tr>
+                <tr><td>Full Name:</td><td width="5"></td><td><strong>Louis Hein</strong></td></tr>
+                <tr><td>Date of Birth:</td><td width="5"></td><td>2003-07-04</td></tr>
+                <tr><td>Country of Birth:</td><td width="5"></td><td>Germany</td></tr>
+              </tbody>
+            </table>
+          </body>
+        </html>
+        """
+        result = parse_email_content(html)
+        self.assertEqual(result["order_id"], "637266731")
+        self.assertFalse(result["should_skip"])
+        self.assertEqual(len(result["attendee_blocks"]), 2)
+        self.assertIn("Full Name: Tim Kosak", result["attendee_blocks"][0])
+        self.assertIn("Date Of Birth: 2002-04-11", result["attendee_blocks"][0])
+        self.assertIn("Nationality: Germany", result["attendee_blocks"][0])
+        self.assertIn("Full Name: Louis Hein", result["attendee_blocks"][1])
+        self.assertIn("Date Of Birth: 2003-07-04", result["attendee_blocks"][1])
+        self.assertIn("Nationality: Germany", result["attendee_blocks"][1])
+
 
 if __name__ == "__main__":
     unittest.main()
