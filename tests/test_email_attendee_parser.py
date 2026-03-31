@@ -243,6 +243,24 @@ class EmailAttendeeParserTests(unittest.TestCase):
         self.assertIn("Date Of Birth: 2003-07-04", result["attendee_blocks"][1])
         self.assertIn("Nationality: Germany", result["attendee_blocks"][1])
 
+    def test_extracts_names_after_attendees_full_names_heading(self) -> None:
+        html = """
+        <html>
+          <body>
+            <div>Hello,</div>
+            <div>Attendees Full Names:</div>
+            <div>Jacob Stone<br/>Sunny Mooney<br/>Freddie Pitt-Pladdy</div>
+            <div>Thank you for contacting us.</div>
+          </body>
+        </html>
+        """
+        result = parse_email_content(html)
+        self.assertFalse(result["should_skip"])
+        self.assertEqual(len(result["attendee_blocks"]), 3)
+        self.assertIn("Full Name: Jacob Stone", result["attendee_blocks"][0])
+        self.assertIn("Full Name: Sunny Mooney", result["attendee_blocks"][1])
+        self.assertIn("Full Name: Freddie Pitt-Pladdy", result["attendee_blocks"][2])
+
 
 if __name__ == "__main__":
     unittest.main()

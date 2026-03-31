@@ -412,6 +412,56 @@ def _extract_triplet_blocks(lines: list[str]) -> list[str]:
     return _dedupe_blocks(blocks)
 
 
+def _extract_names_after_attendee_heading(lines: list[str]) -> list[str]:
+    """
+    Handle templates like:
+      Attendees Full Names:
+      Jacob Stone
+      Sunny Mooney
+      Freddie Pitt-Pladdy
+    """
+    heading_re = re.compile(r"^attendees?\s+full\s+names?\s*:?\s*$", re.IGNORECASE)
+    blocks: list[str] = []
+    i = 0
+    while i < len(lines):
+        if not heading_re.match(lines[i]):
+            i += 1
+            continue
+
+        j = i + 1
+        started = False
+        while j < len(lines):
+            candidate = _normalize_space(lines[j])
+            lower = candidate.lower()
+            if not candidate:
+                if started:
+                    break
+                j += 1
+                continue
+
+            if _is_probable_name(candidate) and not _line_is_noise(candidate):
+                blocks.append(f"Full Name: {candidate}")
+                started = True
+                j += 1
+                continue
+
+            # Stop after list starts once normal prose/signature starts.
+            if started:
+                if ":" in candidate or any(
+                    token in lower for token in ["thank you", "seller operations", "help center", "help centre"]
+                ):
+                    break
+                # Keep scanning a little bit for malformed html line breaks;
+                # if it is not a probable name, end current list.
+                break
+
+            j += 1
+
+        i = j
+
+    return _dedupe_blocks(blocks)
+
+
 def _extract_candidate_zone(lines: list[str]) -> list[str]:
     if not lines:
         return []
@@ -459,6 +509,7 @@ def extract_attendee_blocks(content: str) -> list[str]:
     blocks.extend(_extract_table_blocks(content))
     blocks.extend(_extract_labeled_blocks(zone))
     blocks.extend(_extract_split_label_value_blocks(zone))
+    blocks.extend(_extract_names_after_attendee_heading(zone))
 
     if not blocks:
         blocks.extend(_extract_triplet_blocks(zone))
