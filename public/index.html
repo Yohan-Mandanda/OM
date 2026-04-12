@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live Targets</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="top-bar">
+        <div class="title-wrap">
+          <h1>Live Targets</h1>
+          <p>Modern live board with manual and API-fed boxes.</p>
+        </div>
+        <div id="connectionBadge" class="connection offline">Connecting...</div>
+      </header>
+
+      <section class="toolbar">
+        <div class="search-wrap">
+          <input
+            id="searchInput"
+            type="search"
+            placeholder="Search by match number, venue or game"
+          />
+        </div>
+        <select id="sourceFilter" class="select-filter" aria-label="Filter source">
+          <option value="all">All sources</option>
+          <option value="manual">Manual only</option>
+          <option value="api">API only</option>
+        </select>
+        <div class="toolbar-actions">
+          <button id="clearSearchBtn" class="chip">Clear</button>
+          <button id="addRowBtn" class="chip chip-primary">+ Add Match</button>
+        </div>
+      </section>
+
+      <section class="table-panel">
+        <table>
+          <thead>
+            <tr>
+              <th class="event-col">Event</th>
+              <th>Total</th>
+              <th>Stock</th>
+              <th>Sold / Unsold</th>
+              <th>Performance</th>
+              <th class="group-col" colspan="4">Face Value</th>
+              <th class="group-col" colspan="4">In Targets</th>
+              <th class="action-col">Actions</th>
+            </tr>
+            <tr>
+              <th></th>
+              <th></th>
+              <th></th>
+              <th></th>
+              <th></th>
+              <th>C1</th>
+              <th>C2</th>
+              <th>C3</th>
+              <th>C4</th>
+              <th>C1</th>
+              <th>C2</th>
+              <th>C3</th>
+              <th>C4</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="targetBody"></tbody>
+        </table>
+      </section>
+    </div>
+
+    <div id="modalBackdrop" class="modal-backdrop" aria-hidden="true">
+      <div class="modal">
+        <h3 id="modalTitle">Edit</h3>
+        <p id="modalSubtitle" class="modal-subtitle"></p>
+        <form id="modalForm"></form>
+        <div class="modal-actions">
+          <button id="modalCancelBtn" class="chip" type="button">Cancel</button>
+          <button id="modalSubmitBtn" class="chip chip-primary" type="submit" form="modalForm">
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>
