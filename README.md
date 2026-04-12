@@ -1,75 +1,72 @@
-# OM E-Ticket Downloader
+# Live Targets Dashboard (JavaScript)
 
-Automation tool to log into OM billetterie accounts and download e-tickets for a selected match.
+Modern real-time dashboard for your team to track targets, with:
 
-## What is included
+- dark "trading-style" UI
+- live updates for all connected users
+- per-box data source: **manual** or **API-fed**
+- fast filtering (search + source type)
 
-- `om_eticket_downloader.py`: CLI automation script (Playwright, multi-account support).
-- `streamlit_app.py`: optional web interface to run the same automation.
-- `accounts_example.csv`: sample spreadsheet format.
+## Stack
 
-## Requirements
-
-- Python 3.10+
-- Chromium for Playwright
+- Node.js + Express
+- Socket.IO for real-time sync
+- Vanilla JavaScript frontend (no framework)
 
 ## Install
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python -m playwright install chromium
+npm install
 ```
 
-## Account file format
-
-Use CSV or XLSX with at least:
-
-- one email column: `email` (or similar, e.g. `adresse email`)
-- one password column: `mot de passe` / `password`
-
-Example:
-
-```csv
-email,mot de passe
-user1@example.com,password1
-user2@example.com,password2
-```
-
-## Run from terminal (CLI)
+## Run
 
 ```bash
-python om_eticket_downloader.py \
-  --accounts-file accounts_example.csv \
-  --match "Lille" \
-  --output-dir downloads
+npm start
 ```
 
-Useful options:
+Open: `http://localhost:3000`
 
-- `--headless` (not recommended if captcha appears)
-- `--login-wait-seconds 180`
-- `--slow-mo-ms 150`
-
-Downloads are saved under:
-
-`downloads/<email>/`
-
-## Run with interface (Streamlit)
+For auto-reload during development:
 
 ```bash
-streamlit run streamlit_app.py
+npm run dev
 ```
 
-Then:
+## How to use
 
-1. Upload CSV/XLSX file
-2. Enter match name (e.g. `Auxerre`, `Lille`, `Metz`)
-3. Click **Start download**
+1. Click **+ Add Match** to create a row.
+2. Fill event fields (game, match number, venue) directly inline.
+3. For each category box, click **Configure**:
+   - **Manual**: type value directly
+   - **API**: set URL + optional field path + refresh interval
+4. Click **Refresh** for immediate pull, or let auto-polling run.
 
-## Notes / limitations
+## API path examples
 
-- If cookie banner appears, the script tries to accept it automatically.
-- If captcha appears, run in non-headless mode and solve manually in the opened browser.
-- Selectors can change on OM website; if they do, update the script selectors.
+If your API returns:
+
+```json
+{
+  "data": {
+    "price": 92.5
+  }
+}
+```
+
+Use:
+
+- URL: `https://your-api.example.com/endpoint`
+- Field path: `data.price`
+
+If `fieldPath` is left empty, the full response is used.
+
+## Live behavior
+
+- Every change is broadcast via Socket.IO.
+- API cells are polled automatically based on each cell interval.
+- Row and cell updates are immediately visible to all connected users.
+
+## Legacy files
+
+The repository still includes older Python automation files (`om_eticket_downloader.py`, `streamlit_app.py`) which are not required for this JavaScript dashboard.

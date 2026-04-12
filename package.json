@@ -1,0 +1,27 @@
+{
+  "name": "workspace",
+  "version": "1.0.0",
+  "description": "Live target dashboard with manual and API-fed boxes",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "echo \"No tests configured yet\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yohan-Mandanda/OM.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Yohan-Mandanda/OM/issues"
+  },
+  "homepage": "https://github.com/Yohan-Mandanda/OM#readme",
+  "dependencies": {
+    "axios": "^1.15.0",
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
+  }
+}
